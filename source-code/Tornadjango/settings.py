@@ -105,3 +105,4 @@ STATIC_URL = '/static/'
 
 SOCKET_SERVER = 'localhost:3000'
 SOCKET_SECURE = False
+SOCKET_SECRET = 'tumameama'
