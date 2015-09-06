@@ -144,9 +144,17 @@
 	    	console.log('conexion cerrada');
 		});
 
-		MyClase.on('user:create', function(id)
+		MyClase.on('user:create', function(id, result)
 		{
 			console.log('se creo el user: ' + id);
+			console.log(result.body);
+			//se ejecuta la accion
+		});
+
+		MyClase.on('user:update', function(id, result)
+		{
+			console.log('se actualizo el user: ' + id);
+			console.log(result.body);
 			//se ejecuta la accion
 		});
 

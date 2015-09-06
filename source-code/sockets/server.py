@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import signal
@@ -8,12 +9,13 @@ from collections import defaultdict
 from urlparse import urlparse
 
 from django.core.signing import TimestampSigner, BadSignature, SignatureExpired
+from django.utils.crypto import constant_time_compare
 
 from redis import Redis
 from tornado.httpserver import HTTPServer
 from tornado.ioloop import IOLoop
 from tornado.options import define, parse_command_line, options
-from tornado.web import Application, RequestHandler
+from tornado.web import Application, RequestHandler, HTTPError
 from tornado.websocket import WebSocketHandler, WebSocketClosedError
 from tornadoredis import Client
 from tornadoredis.pubsub import BaseSubscriber
@@ -55,12 +57,38 @@ class UpdateHandler(RequestHandler):
 		self._broadcast(model, pk, 'delete')
 
 	def _broadcast(self, model, pk, action):
+		# lo primero es seguridad
+		signature = self.request.headers.get('X-Signature', None)
+		
+		if not signature:
+			raise HTTPError(400)
+		
+		try:
+			result = self.application.signer.unsign(signature, max_age=60 * 1)
+		except ValueError:
+			raise HTTPError(400)
+		else:
+			expected = '{method}:{url}:{body}'.format(
+				method=self.request.method.lower(),
+				url=self.request.full_url(),
+				body=hashlib.sha256(self.request.body).hexdigest(),
+			)
+			if not constant_time_compare(result, expected):
+				raise HTTPError(400)
+
+		# aqui es despues de validar seguridad
+		try:
+			body = json.loads(self.request.body.decode('utf-8'))
+		except ValueError:
+			body = None
+
 		message = json.dumps({
 			'model': model,
 			'id': pk,
 			'action': action,
+			'body': body
 		})		
-		self.application.broadcast(message, '1') # aqui es segundo parametro es el canal a donde se madaran los mensajes
+		self.application.broadcast(message) #OOOOOOJJJJJJOOOOOOOOO aqui es segundo parametro es el canal a donde se madaran los mensajes
 		self.write("OK");
 
 # este funciona para interaccion directa entre clientes
