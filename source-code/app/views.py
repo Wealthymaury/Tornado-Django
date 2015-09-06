@@ -1,6 +1,6 @@
 from django.conf import settings
 from django.contrib.auth.models import User
-from django.shortcuts import render
+from django.core.signing import TimestampSigner
 from django.views.generic import TemplateView
 
 from rest_framework import viewsets
@@ -13,12 +13,14 @@ class IndexView(TemplateView):
 
 	def get_context_data(self, **kwargs):
 		context = super(IndexView, self).get_context_data(**kwargs)
-		channel = '{protocol}://{server}/{channel}'.format(
+		signer = TimestampSigner(settings.SOCKET_SECRET)
+		channel = signer.sign(1) # el 1 deberia ser el ID de la empresa
+		url = '{protocol}://{server}/socket?channel={channel}'.format(
 			protocol = 'wss' if settings.SOCKET_SECURE else 'ws',
 			server = settings.SOCKET_SERVER,
-			channel = 1 #id de la empresa y solo si el usuario tiene permiso
+			channel = channel
 		)
-		context.update(channel=channel)
+		context.update(socket_url=url)
 		return context
 
 class UserViewSet(UpdateHookMixin, viewsets.ModelViewSet):

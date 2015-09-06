@@ -7,6 +7,8 @@ import uuid
 from collections import defaultdict
 from urlparse import urlparse
 
+from django.core.signing import TimestampSigner, BadSignature, SignatureExpired
+
 from redis import Redis
 from tornado.httpserver import HTTPServer
 from tornado.ioloop import IOLoop
@@ -71,27 +73,40 @@ class MainHandler(WebSocketHandler):
 		matched = any(parsed.netloc == host for host in options.allowed_hosts.split(','))
 		return options.debug or allowed or matched
 
-	def open(self, channel):
-		self.channel = channel.decode('utf-8')
-		self.uid = uuid.uuid4().hex
-		self.application.add_suscriber(self.channel, self)
+	def open(self):
+		self.sprint = None
+		channel = self.get_argument('channel', None)
+		if not channel:
+			self.close()
+		else:
+			try:
+				self.sprint = self.application.signer.unsign(channel, max_age=60 * 30)
+			except:
+				self.close();
+			else:
+				self.uid = uuid.uuid4().hex
+				self.application.add_suscriber(self.sprint, self)
 
 	def on_message(self, message):
-		self.application.broadcast(message, channel=self.channel, sender=self)
+		if self.sprint is not None:
+			self.application.broadcast(message, channel=self.sprint, sender=self)
 
 	def on_close(self):
-		self.application.remove_subscriber(self.channel, self)
+		if self.sprint is not None:
+			self.application.remove_subscriber(self.sprint, self)
 
 class MyApplication(Application):
 	def __init__(self, **kwargs):
 		routes = [
-			(r'/(?P<channel>[0-9]+)', MainHandler),
+			(r'/socket', MainHandler),
 			(r'/(?P<model>user|sprint|other)/(?P<pk>[0-9]+)', UpdateHandler)
 		]
 		super(MyApplication, self).__init__(routes, **kwargs)
 		# self.subscriptions = defaultdict(list)
 		self.subscriber = RedisSubscriber(Client())
 		self.publisher = Redis()
+		self._key = 'tumameama' # es la misma que en django
+		self.signer = TimestampSigner(self._key)
 
 	def add_suscriber(self, channel, subscriber):
 		# self.subscriptions[channel].append(subscriber)
