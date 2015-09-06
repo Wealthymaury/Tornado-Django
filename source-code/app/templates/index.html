@@ -1,0 +1,173 @@
+{% load static from staticfiles %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>Preubas con web sockets</title>
+
+	<script src="{% static 'js/jquery.min.js' %}"></script>
+	<script src="{% static 'js/underscore-min.js' %}"></script>
+	<script src="{% static 'js/backbone-min.js' %}"></script>
+	
+</head>
+<body>
+	<script>
+		var channel = "{{ channel }}";
+		// var socket = new WebSocket('ws://localhost:3000/1');
+		// socket.onopen = function(){
+		//     console.log('conection open');
+		//     socket.send('ping')
+		// }
+		// socket.onmessage = function(message)
+		// {
+		// 	console.log('new message: ' + message.data);
+		// 	if(message.data == 'ping')
+		// 	{
+		// 		socket.send('pong');
+		// 	}
+		// }
+
+		var Socket = function(server)
+		{
+			this.server = server;
+			this.ws = null;
+			this.connected = new $.Deferred();
+			this.open();
+		};
+
+		Socket.prototype = _.extend(Socket.prototype, Backbone.Events, {
+			open: function()
+			{
+				if(this.ws === null)
+				{
+					this.ws = new WebSocket(this.server);
+					this.ws.onopen = $.proxy(this.onopen, this);
+					this.ws.onmessage = $.proxy(this.onmessage, this);
+					this.ws.onclose = $.proxy(this.onclose, this);
+					this.ws.onerror = $.proxy(this.onerror, this);
+				}
+
+				return this.connected;
+			},
+			close: function()
+			{
+				if(this.ws && this.ws.close)
+				{
+					this.ws.close();
+				}
+				this.ws = null;
+				this.connected = new $.Deferred();
+				this.trigger('closed');
+			},
+			onopen: function()
+			{
+				this.connected.resolve(true);
+				this.trigger('open');
+			},
+			onmessage: function(message)
+			{
+				var result = JSON.parse(message.data);
+				this.trigger('message', result, message);
+				if(result.model && result.action)
+				{
+					this.trigger(result.model + ':' + result.action, result.id, result, message);
+				}
+			},
+			onclose: function()
+			{
+				this.close();
+			},
+			send: function(message)
+			{
+				var self = this;
+				var payload = JSON.stringify(message);
+				this.connected.done(function()
+				{
+					self.ws.send(payload);
+				});
+			}	
+
+		});
+
+		/*
+		 * esto esta diseñado para trabajar con una estructura asi:
+			 {
+				model: 'modelname',
+				id: 'id',
+				action: 'actionname'
+			 }
+
+		 * y los eventos que se manejan con los mensajes tienen la siguiente estructura
+		 	 modelname:action  ->  args (id, ...)
+
+		 * los sockets son para utilizarse en las vistas,
+		 * normalmente un socket se abre cuando se inicializa una vista
+		 * y se cuando la vista es removida, sobreescibiendo el metodo remove y llamado al remove padre,
+
+		 * la idea es que se inicie el socket hasta que los datos fueron traidos con fetch
+		 	 ejemplo: this.socket = new Socket(links.channel)
+		 	 aqui mismo se agregan los eventos "<P>""
+
+		 * la vista debe disparar eventos segun lo que quieras mandar al server
+		 * y debes de tener las escuchas a dichos eventos que se encarguen de enviar los eventos tambien 
+		 * a travez del socket, usando el formato que se definio
+		 	 ejemplo:
+
+		 	 view.on('algo', function(model)
+		 	 {
+				this.socket.send(
+				{
+					model: 'task',
+					id: model.id,
+					action: 'algo'
+				});
+		 	 });
+
+		 * Sobre eventos "<P>": la contraparte del proceso se da agregando una escucha al evento del socket
+		 	 this.socket.on('task:algo', function(id)
+		 	 {
+				haz la funcion para actualizar tus vistas segun lo ocurrido
+		 	 });
+		 */
+
+		var MyClase = new Socket(channel);
+
+		MyClase.on('open' ,function(){
+	    	console.log('conexion abierta');
+		});
+
+		MyClase.on('message' ,function(message){
+	    	console.log(message);
+		});
+
+		MyClase.on('closed' ,function(){
+	    	console.log('conexion cerrada');
+		});
+
+		MyClase.on('user:create', function(id)
+		{
+			console.log('se creo el user: ' + id);
+			//se ejecuta la accion
+		});
+
+		MyClase.on('user:delete', function(id)
+		{
+			console.log('se elimino el user: ' + id);
+			//se ejecuta la accion
+		});
+
+		MyClase.send({
+			model: 'user',
+			id: 1,
+			action: 'create'
+		});
+
+		MyClase.send({
+			model: 'user',
+			id: 1,
+			action: 'delete'
+		});
+
+	</script>
+</body>
+</html>
