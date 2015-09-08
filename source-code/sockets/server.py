@@ -24,11 +24,12 @@ define('debug', default=True, type=bool, help='Run in debug mode')
 define('port', default=3000, type=int, help='Server port')
 define('allowed_hosts', multiple=True, default='localhost:8000,', help='Allowed hosts for cross domain connectinos')
 
+# recib un mensaje en JSON y lo conviete a dict y le escribe el mensaje a todos los del canal
 class RedisSubscriber(BaseSubscriber):
 	def on_message(self, msg):
 		if msg and msg.kind == 'message':
 			try:
-				message = json.loads(msg.body)
+				message = json.loads(msg.body) # de json a disct
 				sender = message['sender']
 				message = message['message']
 			except (ValueError, KeyError):
@@ -82,13 +83,13 @@ class UpdateHandler(RequestHandler):
 		except ValueError:
 			body = None
 
-		message = json.dumps({
+		message = json.dumps({ # crea un JSON
 			'model': model,
 			'id': pk,
 			'action': action,
 			'body': body
 		})		
-		self.application.broadcast(message) #OOOOOOJJJJJJOOOOOOOOO aqui es segundo parametro es el canal a donde se madaran los mensajes
+		self.application.broadcast(message, '1') #OOOOOOJJJJJJOOOOOOOOO aqui es segundo parametro es el canal a donde se madaran los mensajes
 		self.write("OK");
 
 # este funciona para interaccion directa entre clientes
@@ -102,28 +103,30 @@ class MainHandler(WebSocketHandler):
 		return options.debug or allowed or matched
 
 	def open(self):
-		self.sprint = None
-		channel = self.get_argument('channel', None)
-		if not channel:
+		self.channel = None
+		arg_channel = self.get_argument('channel', None)
+		if not arg_channel:
 			self.close()
 		else:
 			try:
-				self.sprint = self.application.signer.unsign(channel, max_age=60 * 30)
+				# intentando desencriptar el canal que llego en la URL
+				self.channel = self.application.signer.unsign(arg_channel, max_age=60 * 30)
 			except:
 				self.close();
 			else:
 				self.uid = uuid.uuid4().hex
-				self.application.add_suscriber(self.sprint, self)
+				self.application.add_suscriber(self.channel, self)
 
 	def on_message(self, message):
-		if self.sprint is not None:
-			self.application.broadcast(message, channel=self.sprint, sender=self)
+		if self.channel is not None:
+			self.application.broadcast(message, channel=self.channel, sender=self)
 
 	def on_close(self):
-		if self.sprint is not None:
-			self.application.remove_subscriber(self.sprint, self)
+		if self.channel is not None:
+			self.application.remove_subscriber(self.channel, self)
 
 class MyApplication(Application):
+
 	def __init__(self, **kwargs):
 		routes = [
 			(r'/socket', MainHandler),
@@ -149,6 +152,7 @@ class MyApplication(Application):
 
 	def broadcast(self, message, channel=None, sender=None):
 		channel = 'all' if channel is None else channel
+		# armando un JSON
 		message = json.dumps({
 			'sender': sender and sender.uid,
 			'message': message
@@ -183,7 +187,7 @@ def shutdown(server):
 		ioloop.stop()
 		logging.info('Stoped.')
 
-	ioloop.add_timeout(time.time() + 0.5, finalize)
+	ioloop.add_timeout(time.time() + 0.2, finalize)
 
 if __name__ == '__main__':
 	parse_command_line()
